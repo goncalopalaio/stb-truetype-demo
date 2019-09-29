@@ -51,6 +51,41 @@ void print_fun(const char* f) {
     printf("%s\n", f);
 }
 
+void print_gl_string(const char *name, GLenum s) {
+    const char *v = (const char *) glGetString(s);
+    printf("GL %s = %s\n", name, v);
+}
+
+void gl_error(const char *file, int line) {
+    bool has_errors = false;
+    for (GLint error = glGetError(); error; error = glGetError()) {
+        printf("\tGL_ERROR: file:%s:%d -- Hex: 0x%x Dec: %d)\n", file, line, error, error);
+        switch (error) {
+            case GL_INVALID_ENUM:
+                printf("\tINVALID_ENUM\n");
+                break;
+            case GL_INVALID_VALUE:
+                printf("\tINVALID_VALUE\n");
+                break;
+            case GL_INVALID_OPERATION:
+                printf("\tINVALID_OPERATION\n");
+                break;
+            case GL_OUT_OF_MEMORY:
+                printf("\tOUT_OF_MEMORY\n");
+                break;
+            case GL_INVALID_FRAMEBUFFER_OPERATION:
+                printf("\tINVALID_FRAMEBUFFER_OPERATION\n");
+                break;
+            default:
+                printf("\t__UNEXPECTED_VALUE__)\n");
+        }
+        has_errors = true;
+    }
+    assert(!has_errors);
+}
+
+#define GL_ERR gl_error(__FILE__, __LINE__)
+
 GLuint compile_shader(GLenum type, const char *src) {
     GLuint shader;
     GLint compiled;
@@ -77,8 +112,18 @@ inline float *push_v4_arr(float *v, float x, float y, float z, float a) {
     v[1] = y;
     v[2] = z;
     v[3] = a;
-    //log_fmt("push_v4_arr: %f, %f, %f, %f",  x, y, z, a);
+    printf("push_v4_arr: %f, %f, %f, %f\n",  x, y, z, a);
     return v + 4;
+}
+
+inline float *push_v5_arr(float *v, float x, float y, float z, float s, float t) {
+    v[0] = x;
+    v[1] = y;
+    v[2] = z;
+    v[3] = s;
+    v[4] = t;
+    printf("push_v5_arr: %f, %f, %f, %f, %f\n",  x, y, z, s, t);
+    return v + 5;
 }
 
 void set_float3(float3 *v, float x, float y, float z) {
@@ -183,21 +228,21 @@ int main(int argc, char const *argv[]) {
 
 	char vs_source[] =
         "attribute vec4 position;"
+        "attribute vec2 uvs;"
         "uniform mat4 view_matrix;"
         "uniform mat4 projection_matrix;"
-        "varying vec2 uvs;"
+        "varying vec2 vuvs;"
         "void main(){"
-        "uvs = vec2(position.xy);"
-        "vec4 p= vec4(position.zw, 0, 1.0);"
-        "gl_Position =  projection_matrix * view_matrix * p;"
+        "vuvs = uvs;"
+        "gl_Position =  projection_matrix * view_matrix * position;"
         "}";
 
     char fs_source[] =
-        "varying vec2 uvs;"
+        "varying vec2 vuvs;"
 		"uniform sampler2D texture;"
         "void main() {"
-        //"gl_FragColor = vec4(1.0,0.0,0.0, 1.0) + texture2D(texture, uvs);"
-        "gl_FragColor = texture2D(texture, uvs);"
+        "gl_FragColor = texture2D(texture, vuvs);"
+        //"gl_FragColor = vec4(0.1,0.1,0.1, 0.1) + texture2D(texture, vuvs);"
         "}";
 	printf("Compiling shader\n");
     GLuint main_shader = compile_shader_program(vs_source,
@@ -217,25 +262,25 @@ int main(int argc, char const *argv[]) {
     float aspect = WINDOW_W / (float)WINDOW_H;
     m_mat4_perspective(projection_matrix, 10.0, aspect, 0.1, 100.0);
 
-	set_float3(&camera_position, 10 ,10, 10);
+	set_float3(&camera_position, 0, 1, 5);
 	set_float3(&camera_direction, 0 - camera_position.x ,0 - camera_position.y , 0 - camera_position.z);
 	set_float3(&camera_up, 0,1,0);
 	
 	m_mat4_lookat(view_matrix, &camera_position, &camera_direction, &camera_up);
 
 	printf("Creating mesh\n");
-	int vertex_data_size = sizeof(float) * 6 * 4;
+	int vertex_data_size = sizeof(float) * 6 * 5;
 	float* vertex_data = (float *) malloc(vertex_data_size);
 
 	float* buf = vertex_data;
     {
-		float scale = 3.0;
-		buf = push_v4_arr(buf, 0.0, 1.0, -scale, scale);
-		buf = push_v4_arr(buf, 1.0, 0.0, scale, -scale);
-		buf = push_v4_arr(buf, 1.0, 1.0, scale, scale);
-		buf = push_v4_arr(buf, 0.0, 1.0, -scale, scale);
-		buf = push_v4_arr(buf, 0.0, 0.0, -scale, -scale);
-		buf = push_v4_arr(buf, 1.0, 0.0, scale, -scale);
+		float scale = 1.0;
+		buf = push_v5_arr(buf, -scale, scale, 0.0, 0.0, 1.0);
+		buf = push_v5_arr(buf, scale, -scale, 0.0, 1.0, 0.0);
+		buf = push_v5_arr(buf, scale, scale, 0.0, 1.0, 1.0);
+		buf = push_v5_arr(buf, -scale, scale, 0.0, 0.0, 1.0);
+		buf = push_v5_arr(buf, -scale, -scale, 0.0, 0.0, 0.0);
+		buf = push_v5_arr(buf, scale, -scale, 0.0, 1.0, 0.0);
     }
 
     printf("Loading font !!\n");
@@ -249,10 +294,13 @@ int main(int argc, char const *argv[]) {
         printf("font loaded\n");
     }
 
-    int font_size = 70;
+    int font_size = 190;
 
-    const char font_first_char = ' ';
-    const int font_char_count = '~' - ' ';
+    //const char font_first_char = 'A';
+    //const int font_char_count = 6;
+    const char font_first_char = 'A';
+    const int font_char_count = 10;
+    
     const int bitmap_width = 512;
     const int bitmap_height = 256;
     const int oversample_x = 1;
@@ -293,7 +341,8 @@ int main(int argc, char const *argv[]) {
 
     glGenTextures(1, &font_texture);
     glBindTexture(GL_TEXTURE_2D, font_texture);
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, bitmap_width, bitmap_height, 0, GL_ALPHA, GL_UNSIGNED_BYTE, bitmap);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, bitmap_width, bitmap_height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+	                     bitmap);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     
@@ -301,7 +350,6 @@ int main(int argc, char const *argv[]) {
     delete font_file;
 
     bool render_a_character = false;
-
     if (render_a_character) {
     	float x = 0;
     	float y = 0;
@@ -321,14 +369,16 @@ int main(int argc, char const *argv[]) {
 
 		float* buf = vertex_data;
 	    {
-	    	
+	    	float xf = 0.01;
+	    	float yf = 0.01;
+	    	printf("rendering character to position\n");
 			float scale = 1.0;
-			buf = push_v4_arr(buf, q.s0, q.t0, -scale, scale);
-			buf = push_v4_arr(buf, q.s1, q.t0, scale, -scale);
-			buf = push_v4_arr(buf, q.s1, q.t1, scale, scale);
-			buf = push_v4_arr(buf, q.s0, q.t0, -scale, scale);
-			buf = push_v4_arr(buf, q.s1, q.t1, -scale, -scale);
-			buf = push_v4_arr(buf, q.s0, q.t1, scale, -scale);
+			buf = push_v5_arr(buf, xf * q.x0, yf * q.y0, 0.0, q.s0, q.t0);
+			buf = push_v5_arr(buf, xf * q.x1, yf * q.y0, 0.0, q.s1, q.t0);
+			buf = push_v5_arr(buf, xf * q.x1, yf * q.y1, 0.0, q.s1, q.t1);
+			buf = push_v5_arr(buf, xf * q.x0, yf * q.y0, 0.0, q.s0, q.t0);
+			buf = push_v5_arr(buf, xf * q.x1, yf * q.y1, 0.0, q.s1, q.t1);
+			buf = push_v5_arr(buf, xf * q.x0, yf * q.y1, 0.0, q.s0, q.t1);
 	    }
     }
 
@@ -344,6 +394,7 @@ int main(int argc, char const *argv[]) {
 	    glBindTexture(GL_TEXTURE_2D, test_texture);
 	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
 	    if (channels == 3) {
 	        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
 	    } else {
@@ -353,10 +404,40 @@ int main(int argc, char const *argv[]) {
 
 	    glBindTexture(GL_TEXTURE_2D, 0);
 	    stbi_image_free(pixels);
-	}
-    
-    printf("Entering Render Loop\n");
 
+	    printf("Loaded test texture: %d %d %d\n", width, height, channels);
+	}
+
+	printf("Loading font texture from file\n");
+	GLuint font_texture_from_file = 0;
+	{
+		int width, height, channels;
+	    stbi_set_flip_vertically_on_load(true);
+	    unsigned char *pixels = stbi_load("font.png", &width, &height, &channels, 0);
+	    assert(pixels != NULL);
+
+	    glGenTextures(1, &font_texture_from_file);
+	    glBindTexture(GL_TEXTURE_2D, font_texture_from_file);
+	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	    if (channels == 3) {
+	        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+	    } else if(channels == 4) {
+	        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+	                     pixels);
+	    } else {
+	    	glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE,
+	                     pixels);
+	    }
+
+	    glBindTexture(GL_TEXTURE_2D, 0);
+	    stbi_image_free(pixels);
+
+	    printf("Loaded font texture from file: %d %d %d\n", width, height, channels);
+	}
+
+    printf("Entering Render Loop\n");
+    GL_ERR;
 	glEnable(GL_DEPTH_TEST);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     while(!glfwWindowShouldClose(window)) {
@@ -367,27 +448,31 @@ int main(int argc, char const *argv[]) {
         {
 			
 			GLint position = glGetAttribLocation(main_shader, "position");
+			GLint uvs = glGetAttribLocation(main_shader, "uvs");
 			GLint texture = glGetAttribLocation(main_shader, "texture_unit");
 
 			glUniformMatrix4fv(glGetUniformLocation(main_shader, "view_matrix"),1,GL_FALSE,view_matrix);
 			glUniformMatrix4fv(glGetUniformLocation(main_shader, "projection_matrix"), 1, GL_FALSE, projection_matrix);
 			glUniform1f(texture, 0.0);
 
-			//glBindTexture(GL_TEXTURE_2D, font_texture);
-			glBindTexture(GL_TEXTURE_2D, test_texture);
+			// @NOTE Texture loading from the ttf file gives a flipped texture which will certainly lead to incorrect results. Let's debug from a file written to disk for now.
 
-			int bytes_per_float = 4;
-			int stride = bytes_per_float * (4);
+			//glBindTexture(GL_TEXTURE_2D, font_texture);
+			glBindTexture(GL_TEXTURE_2D, font_texture_from_file);
+			//glBindTexture(GL_TEXTURE_2D, test_texture);
+
+			int bytes_per_float = sizeof(float);
+			int stride = bytes_per_float * (5);
 
 			glEnableVertexAttribArray(position);
-			glVertexAttribPointer(position, 4, GL_FLOAT, GL_FALSE, stride, vertex_data);
+			glVertexAttribPointer(position, 3, GL_FLOAT, GL_FALSE, stride, vertex_data);
+			glEnableVertexAttribArray(uvs);
+			glVertexAttribPointer(uvs, 2, GL_FLOAT, GL_FALSE, stride, vertex_data + 3);
 
 			glDrawArrays(GL_TRIANGLES, 0, 6);
         }
         glUseProgram(0);
-
-    	
-
+		GL_ERR;
 		glfwSwapBuffers(window);
         glfwPollEvents();
     }
