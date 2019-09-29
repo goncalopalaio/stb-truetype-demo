@@ -8,6 +8,17 @@
 #define M_MATH_IMPLEMENTATION
 #include "m_math.h"
 
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STB_RECT_PACK_IMPLEMENTATION
+#include "stb_rect_pack.h"
+#include "stb_truetype.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #define WINDOW_W 600
 #define WINDOW_H 600
 
@@ -22,14 +33,14 @@ void size_callback(GLFWwindow * window, int width, int height) {
 void cursorpos_callback(GLFWwindow * window, double mx, double my) {}
 
 void key_callback(GLFWwindow* window, int key, int scancode, int action, int mods) {
-    printf("key_callback");
+    printf("key_callback\n");
     glfwSetWindowShouldClose(window, 1);
 }
 
 void mousebutton_callback(GLFWwindow * window, int button, int action, int mods) {}
 
 void char_callback(GLFWwindow * window, unsigned int key) {
-    printf("char_callback");
+    printf("char_callback\n");
 }
 
 void error_callback(int error, const char* description) {
@@ -79,6 +90,27 @@ void set_float3(float3 *v, float x, float y, float z) {
 void set_float2(float2 *v, float x, float y) {
     v->x = x;
     v->y = y;
+}
+
+const unsigned char* read_entire_file(char* filename) {
+    unsigned char *result = 0;
+    
+    FILE *file = fopen(filename, "r");
+    if(file) {
+        fseek(file, 0, SEEK_END);
+        size_t file_size = ftell(file);
+        fseek(file, 0, SEEK_SET);
+
+        result = (unsigned char *)malloc(file_size + 1);
+        fread(result, file_size, 1, file);
+        result[file_size] = 0;
+        
+        fclose(file);
+    } else {
+    	printf("FAILED TO OPEN %s\n", filename);
+    }
+
+    return result;
 }
 
 int compile_shader_program(const char* str_vert_shader, const char* str_frag_shader, const char* attrib_name_0, const char* attrib_name_1) {
@@ -162,8 +194,10 @@ int main(int argc, char const *argv[]) {
 
     char fs_source[] =
         "varying vec2 uvs;"
+		"uniform sampler2D texture;"
         "void main() {"
-        "gl_FragColor = vec4(1.0,0.0,0.0, 1.0);"
+        //"gl_FragColor = vec4(1.0,0.0,0.0, 1.0) + texture2D(texture, uvs);"
+        "gl_FragColor = texture2D(texture, uvs);"
         "}";
 	printf("Compiling shader\n");
     GLuint main_shader = compile_shader_program(vs_source,
@@ -204,6 +238,125 @@ int main(int argc, char const *argv[]) {
 		buf = push_v4_arr(buf, 1.0, 0.0, scale, -scale);
     }
 
+    printf("Loading font !!\n");
+    const unsigned char* font_file = read_entire_file("Roboto.ttf");
+    
+    stbtt_fontinfo info;
+    if (!stbtt_InitFont(&info, font_file, 0)) {
+        printf("init font failed\n");
+        return 1;
+    } else {
+        printf("font loaded\n");
+    }
+
+    int font_size = 70;
+
+    const char font_first_char = ' ';
+    const int font_char_count = '~' - ' ';
+    const int bitmap_width = 512;
+    const int bitmap_height = 256;
+    const int oversample_x = 1;
+    const int oversample_y = 1;
+
+    printf("font_init - font_first_char: %d\n", font_first_char);
+    printf("font_init - font_char_count: %d\n", font_char_count);
+
+    uint8_t* bitmap = (uint8_t *) malloc(
+            sizeof(uint8_t) * bitmap_width * bitmap_height);
+    stbtt_packedchar* font_char_data = (stbtt_packedchar *) malloc(
+            sizeof(stbtt_packedchar) * font_char_count);
+
+	printf("font_init - pack_begin\n");
+    stbtt_pack_context context;
+    if (!stbtt_PackBegin(&context, bitmap, bitmap_width, bitmap_height, 0, 1,
+                         NULL)) {
+        printf("failed to pack begin font\n");
+        assert(0);
+    }
+
+    printf("font_init - pack_font_range\n");
+    stbtt_PackSetOversampling(&context, oversample_x, oversample_y);
+    if (!stbtt_PackFontRange(&context, font_file, 0, font_size, font_first_char,
+                             font_char_count, font_char_data)) {
+        printf("failed to pack font\n");
+        assert(0);
+    }
+    stbtt_PackEnd(&context);
+    printf("font_init - pack_end\n");
+	
+	glEnable(GL_TEXTURE_2D);	
+	printf("font_init - uploading texture\n");
+
+	GLuint font_texture = 0;
+
+    stbi_write_png("font.png", bitmap_width, bitmap_height, 1, bitmap, 0);
+
+    glGenTextures(1, &font_texture);
+    glBindTexture(GL_TEXTURE_2D, font_texture);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_ALPHA, bitmap_width, bitmap_height, 0, GL_ALPHA, GL_UNSIGNED_BYTE, bitmap);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    
+    delete bitmap;
+    delete font_file;
+
+    bool render_a_character = false;
+
+    if (render_a_character) {
+    	float x = 0;
+    	float y = 0;
+		stbtt_aligned_quad q;
+
+    	char character = 'B';
+
+		stbtt_GetPackedQuad(font_char_data,
+                                bitmap_width,
+                                bitmap_height,
+                                character - font_first_char,
+                                &x,
+                                &y,
+                                &q,
+                                1);
+
+
+		float* buf = vertex_data;
+	    {
+	    	
+			float scale = 1.0;
+			buf = push_v4_arr(buf, q.s0, q.t0, -scale, scale);
+			buf = push_v4_arr(buf, q.s1, q.t0, scale, -scale);
+			buf = push_v4_arr(buf, q.s1, q.t1, scale, scale);
+			buf = push_v4_arr(buf, q.s0, q.t0, -scale, scale);
+			buf = push_v4_arr(buf, q.s1, q.t1, -scale, -scale);
+			buf = push_v4_arr(buf, q.s0, q.t1, scale, -scale);
+	    }
+    }
+
+    printf("Loading test texture\n");
+	GLuint test_texture = 0;
+	{
+		int width, height, channels;
+	    stbi_set_flip_vertically_on_load(true);
+	    unsigned char *pixels = stbi_load("texture_map.png", &width, &height, &channels, 0);
+	    assert(pixels != NULL);
+
+	    glGenTextures(1, &test_texture);
+	    glBindTexture(GL_TEXTURE_2D, test_texture);
+	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	    if (channels == 3) {
+	        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, width, height, 0, GL_RGB, GL_UNSIGNED_BYTE, pixels);
+	    } else {
+	        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+	                     pixels);
+	    }
+
+	    glBindTexture(GL_TEXTURE_2D, 0);
+	    stbi_image_free(pixels);
+	}
+    
+    printf("Entering Render Loop\n");
+
 	glEnable(GL_DEPTH_TEST);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     while(!glfwWindowShouldClose(window)) {
@@ -211,18 +364,29 @@ int main(int argc, char const *argv[]) {
 		
 		
         glUseProgram(main_shader);
-    	GLint position = glGetAttribLocation(main_shader, "position");
+        {
+			
+			GLint position = glGetAttribLocation(main_shader, "position");
+			GLint texture = glGetAttribLocation(main_shader, "texture_unit");
 
-        glUniformMatrix4fv(glGetUniformLocation(main_shader, "view_matrix"),1,GL_FALSE,view_matrix);
-        glUniformMatrix4fv(glGetUniformLocation(main_shader, "projection_matrix"), 1, GL_FALSE, projection_matrix);
+			glUniformMatrix4fv(glGetUniformLocation(main_shader, "view_matrix"),1,GL_FALSE,view_matrix);
+			glUniformMatrix4fv(glGetUniformLocation(main_shader, "projection_matrix"), 1, GL_FALSE, projection_matrix);
+			glUniform1f(texture, 0.0);
 
-        int bytes_per_float = 4;
-        int stride = bytes_per_float * (4);
-        
-        glEnableVertexAttribArray(position);
-        glVertexAttribPointer(position, 4, GL_FLOAT, GL_FALSE, stride, vertex_data);
-        
-        glDrawArrays(GL_TRIANGLES, 0, 6);
+			//glBindTexture(GL_TEXTURE_2D, font_texture);
+			glBindTexture(GL_TEXTURE_2D, test_texture);
+
+			int bytes_per_float = 4;
+			int stride = bytes_per_float * (4);
+
+			glEnableVertexAttribArray(position);
+			glVertexAttribPointer(position, 4, GL_FLOAT, GL_FALSE, stride, vertex_data);
+
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+        glUseProgram(0);
+
+    	
 
 		glfwSwapBuffers(window);
         glfwPollEvents();
