@@ -349,8 +349,9 @@ int main(int argc, char const *argv[]) {
     delete bitmap;
     delete font_file;
 
-    bool render_a_character = false;
-    if (render_a_character) {
+   	int character_vertex_data_size = sizeof(float) * 6 * 5;
+	float* character_vertex_data = (float *) malloc(character_vertex_data_size);
+    {
     	float x = 0;
     	float y = 0;
 		stbtt_aligned_quad q;
@@ -367,18 +368,18 @@ int main(int argc, char const *argv[]) {
                                 1);
 
 
-		float* buf = vertex_data;
+		float* buf = character_vertex_data;
 	    {
 	    	float xf = 0.01;
 	    	float yf = 0.01;
 	    	printf("rendering character to position\n");
 			float scale = 1.0;
-			buf = push_v5_arr(buf, xf * q.x0, yf * q.y0, 0.0, q.s0, q.t0);
-			buf = push_v5_arr(buf, xf * q.x1, yf * q.y0, 0.0, q.s1, q.t0);
-			buf = push_v5_arr(buf, xf * q.x1, yf * q.y1, 0.0, q.s1, q.t1);
-			buf = push_v5_arr(buf, xf * q.x0, yf * q.y0, 0.0, q.s0, q.t0);
-			buf = push_v5_arr(buf, xf * q.x1, yf * q.y1, 0.0, q.s1, q.t1);
-			buf = push_v5_arr(buf, xf * q.x0, yf * q.y1, 0.0, q.s0, q.t1);
+			buf = push_v5_arr(buf, xf * q.x0 + 1.0f, yf * q.y0, 2.0, q.s0, q.t0 - 0.2);
+			buf = push_v5_arr(buf, xf * q.x1 + 1.0f, yf * q.y0, 2.0, q.s1, q.t0 - 0.2);
+			buf = push_v5_arr(buf, xf * q.x1 + 1.0f, yf * q.y1, 2.0, q.s1, q.t1 - 0.2);
+			buf = push_v5_arr(buf, xf * q.x0 + 1.0f, yf * q.y0, 2.0, q.s0, q.t0 - 0.2);
+			buf = push_v5_arr(buf, xf * q.x1 + 1.0f, yf * q.y1, 2.0, q.s1, q.t1 - 0.2);
+			buf = push_v5_arr(buf, xf * q.x0 + 1.0f, yf * q.y1, 2.0, q.s0, q.t1 - 0.2);
 	    }
     }
 
@@ -472,6 +473,37 @@ int main(int argc, char const *argv[]) {
 			glDrawArrays(GL_TRIANGLES, 0, 6);
         }
         glUseProgram(0);
+		
+		 glUseProgram(main_shader);
+        {
+			
+			GLint position = glGetAttribLocation(main_shader, "position");
+			GLint uvs = glGetAttribLocation(main_shader, "uvs");
+			GLint texture = glGetAttribLocation(main_shader, "texture_unit");
+
+			glUniformMatrix4fv(glGetUniformLocation(main_shader, "view_matrix"),1,GL_FALSE,view_matrix);
+			glUniformMatrix4fv(glGetUniformLocation(main_shader, "projection_matrix"), 1, GL_FALSE, projection_matrix);
+			glUniform1f(texture, 0.0);
+
+			// @NOTE Texture loading from the ttf file gives a flipped texture which will certainly lead to incorrect results. Let's debug from a file written to disk for now.
+
+			//glBindTexture(GL_TEXTURE_2D, font_texture);
+			glBindTexture(GL_TEXTURE_2D, font_texture_from_file);
+			//glBindTexture(GL_TEXTURE_2D, test_texture);
+
+			int bytes_per_float = sizeof(float);
+			int stride = bytes_per_float * (5);
+
+			glEnableVertexAttribArray(position);
+			glVertexAttribPointer(position, 3, GL_FLOAT, GL_FALSE, stride, character_vertex_data);
+			glEnableVertexAttribArray(uvs);
+			glVertexAttribPointer(uvs, 2, GL_FLOAT, GL_FALSE, stride, character_vertex_data + 3);
+
+			glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+        glUseProgram(0);
+
+
 		GL_ERR;
 		glfwSwapBuffers(window);
         glfwPollEvents();
